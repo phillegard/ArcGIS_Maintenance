@@ -23,7 +23,7 @@ pip install -r requirements.txt
 python scripts/MaintenanceOrchestrator.py
 
 # Run individual scripts
-python CompressRebuildAnalyze.py
+python src/database_maintenance/CompressRebuildAnalyze.py
 python src/health_monitoring/DatabaseHealthSummary.py
 python src/version_management/DeleteStaleVersions.py
 ```
@@ -45,12 +45,13 @@ Environment variables in `.env`:
 ```
 src/
 ├── sde_utils.py              # Shared utilities (logging, SQL, auth)
-├── version_management/       # Version operations
+├── backup/                   # Schema export
 ├── connection_management/    # Connection operations
-├── health_monitoring/        # Health checks
+├── database_maintenance/     # Compress, rebuild, analyze operations
 ├── data_integrity/           # Geometry/topology validation
+├── health_monitoring/        # Health checks
 ├── server_portal/            # Server/Portal REST API
-└── backup/                   # Schema export
+└── version_management/       # Version operations
 scripts/
 └── MaintenanceOrchestrator.py  # Full workflow orchestration
 ```
