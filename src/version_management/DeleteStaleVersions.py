@@ -31,11 +31,10 @@ def get_version_details(database_path):
         List of dicts with version name, owner, age_days
     """
     sql = """
-    SELECT name, owner, creation_time,
+    SELECT name, owner, parent_version, creation_time,
            DATEDIFF(day, creation_time, GETDATE()) as age_days
-    FROM sde.SDE_versions
+    FROM dbo.SDE_versions
     WHERE name != 'DEFAULT'
-    ORDER BY age_days DESC
     """
 
     try:
@@ -48,8 +47,9 @@ def get_version_details(database_path):
             versions.append({
                 'name': f"{row[1]}.{row[0]}" if row[1] else row[0],
                 'owner': row[1],
-                'created': row[2],
-                'age_days': row[3]
+                'parent': row[2],
+                'created': row[3],
+                'age_days': row[4]
             })
         return versions
     except Exception:
@@ -69,7 +69,7 @@ def get_version_details_arcpy(database_path):
     now = datetime.now()
 
     for version in arcpy.da.ListVersions(database_path):
-        if version.name.upper() == "SDE.DEFAULT":
+        if version.name.upper() == "DBO.DEFAULT":
             continue
 
         age_days = 0
@@ -79,6 +79,7 @@ def get_version_details_arcpy(database_path):
         versions.append({
             'name': version.name,
             'owner': version.name.split('.')[0] if '.' in version.name else 'sde',
+            'parent': version.parentVersionName,
             'created': version.created if hasattr(version, 'created') else None,
             'age_days': age_days
         })
@@ -114,6 +115,63 @@ def filter_stale_versions(versions, max_age_days, exclude_patterns=None):
             stale.append(version)
 
     return stale
+
+
+def order_versions_for_deletion(versions):
+    """Order versions so children are deleted before parents.
+
+    Args:
+        versions: List of version dicts with 'name' and 'parent' keys
+
+    Returns:
+        List of versions ordered for safe deletion (leaves first)
+    """
+    version_names = {v['name'] for v in versions}
+    version_map = {v['name']: v for v in versions}
+
+    # Build children lookup
+    children = {v['name']: [] for v in versions}
+    for v in versions:
+        parent = v.get('parent')
+        if parent and parent in children:
+            children[parent].append(v['name'])
+
+    # Topological sort: process leaves first
+    ordered = []
+    remaining = set(version_names)
+
+    while remaining:
+        # Find versions with no remaining children
+        leaves = [name for name in remaining
+                  if all(child not in remaining for child in children[name])]
+
+        if not leaves:
+            # Circular dependency or external parent - add remaining
+            ordered.extend(version_map[name] for name in remaining)
+            break
+
+        for name in leaves:
+            ordered.append(version_map[name])
+            remaining.remove(name)
+
+    return ordered
+
+
+def has_non_stale_children(version_name, stale_names, all_versions):
+    """Check if version has children that aren't in the stale list.
+
+    Args:
+        version_name: Name of version to check
+        stale_names: Set of version names marked for deletion
+        all_versions: All versions with parent info
+
+    Returns:
+        True if version has children not in stale list
+    """
+    for v in all_versions:
+        if v.get('parent') == version_name and v['name'] not in stale_names:
+            return True
+    return False
 
 
 def delete_version(database_path, version_name):
@@ -157,6 +215,23 @@ def process_database(database_path, sde_name, max_age_days, exclude_patterns):
     if not stale:
         log_and_print(f"No stale versions (>{max_age_days} days) in {sde_name}")
         return {'database': sde_name, 'deleted': 0, 'skipped': 0}
+
+    # Filter out parents with non-stale children
+    stale_names = {v['name'] for v in stale}
+    for v in stale[:]:
+        if has_non_stale_children(v['name'], stale_names, versions):
+            log_and_print(
+                f"Skipping {v['name']} - has non-stale child versions",
+                "warning"
+            )
+            stale.remove(v)
+
+    if not stale:
+        log_and_print(f"No deletable stale versions in {sde_name}")
+        return {'database': sde_name, 'deleted': 0, 'skipped': 0}
+
+    # Order versions for safe deletion (children before parents)
+    stale = order_versions_for_deletion(stale)
 
     log_and_print(f"Found {len(stale)} stale version(s) to delete")
 
