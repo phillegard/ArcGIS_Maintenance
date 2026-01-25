@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sde_utils import (
     setup_logging, log_and_print, validate_paths,
-    get_sde_connections
+    get_sde_connections, execute_sql
 )
 
 load_dotenv()
@@ -44,6 +44,36 @@ def get_feature_classes(database_path):
 
     arcpy.env.workspace = database_path
     return feature_classes
+
+
+def is_feature_class_versioned(database_path, fc_name):
+    """Check if a feature class is registered as versioned.
+
+    Args:
+        database_path: Path to .sde connection file
+        fc_name: Feature class name (may include dataset prefix)
+
+    Returns:
+        True if versioned, False otherwise
+    """
+    # Extract table name from potential dataset.fc_name format
+    table_name = fc_name.split('.')[-1] if '.' in fc_name else fc_name
+
+    sql = f"""
+    SELECT COUNT(*)
+    FROM sde.SDE_table_registry
+    WHERE table_name = '{table_name}'
+      AND object_flags & 8 = 8
+    """
+    try:
+        result = execute_sql(database_path, sql)
+        if result and result is not True:
+            count = result[0][0] if isinstance(result[0], (list, tuple)) else result
+            return int(count) > 0
+        return False
+    except Exception as e:
+        log_and_print(f"Error checking versioning for {fc_name}: {e}", "warning")
+        return True  # Assume versioned if we can't determine (safer)
 
 
 def check_geometry(database_path, fc_name):
@@ -90,8 +120,65 @@ def check_geometry(database_path, fc_name):
     return result
 
 
+def repair_geometry_versioned(database_path, fc_name):
+    """Repair geometry on versioned feature class using edit session.
+
+    Starts an edit session on DEFAULT version, performs repair,
+    and saves the edit session.
+
+    Args:
+        database_path: Path to .sde connection file
+        fc_name: Feature class name
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    fc_path = os.path.join(database_path, fc_name)
+    editor = None
+
+    try:
+        editor = arcpy.da.Editor(database_path)
+        editor.startEditing(with_undo=False, multiuser_mode=True)
+        editor.startOperation()
+
+        try:
+            arcpy.RepairGeometry_management(fc_path, "DELETE_NULL")
+            editor.stopOperation()
+            editor.stopEditing(save_changes=True)
+            return True, "Repaired via edit session"
+
+        except arcpy.ExecuteError as e:
+            try:
+                editor.abortOperation()
+            except Exception:
+                pass
+            editor.stopEditing(save_changes=False)
+            return False, f"Repair failed: {e}"
+
+    except arcpy.ExecuteError as e:
+        error_msg = str(e)
+        if "lock" in error_msg.lower() or "exclusive" in error_msg.lower():
+            return False, f"Cannot acquire edit lock: {e}"
+        elif "001259" in error_msg:
+            return False, f"Edit session approach failed: {e}"
+        else:
+            return False, f"Edit session error: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+    finally:
+        if editor is not None:
+            try:
+                if editor.isEditing:
+                    editor.stopEditing(save_changes=False)
+            except Exception:
+                pass
+
+
 def repair_geometry(database_path, fc_name):
     """Repair geometry issues in feature class.
+
+    Handles both versioned and non-versioned feature classes.
+    For versioned FCs, uses edit session approach.
 
     Args:
         database_path: Path to .sde connection file
@@ -101,13 +188,21 @@ def repair_geometry(database_path, fc_name):
         True if successful, False otherwise
     """
     fc_path = os.path.join(database_path, fc_name)
+    is_versioned = is_feature_class_versioned(database_path, fc_name)
 
-    try:
-        arcpy.RepairGeometry_management(fc_path, "DELETE_NULL")
-        return True
-    except arcpy.ExecuteError as e:
-        log_and_print(f"Error repairing {fc_name}: {e}", "error")
-        return False
+    if is_versioned:
+        log_and_print(f"  {fc_name} is versioned - using edit session approach")
+        success, message = repair_geometry_versioned(database_path, fc_name)
+        if not success:
+            log_and_print(f"  Skipping {fc_name}: {message}", "warning")
+        return success
+    else:
+        try:
+            arcpy.RepairGeometry_management(fc_path, "DELETE_NULL")
+            return True
+        except arcpy.ExecuteError as e:
+            log_and_print(f"Error repairing {fc_name}: {e}", "error")
+            return False
 
 
 def process_feature_class(database_path, fc_name, auto_repair):
@@ -122,9 +217,11 @@ def process_feature_class(database_path, fc_name, auto_repair):
         Dict with processing results
     """
     result = check_geometry(database_path, fc_name)
+    result['is_versioned'] = is_feature_class_versioned(database_path, fc_name)
 
     if result['error_count'] > 0:
-        log_and_print(f"  {fc_name}: {result['error_count']} geometry error(s)", "warning")
+        version_note = " (versioned)" if result['is_versioned'] else ""
+        log_and_print(f"  {fc_name}{version_note}: {result['error_count']} geometry error(s)", "warning")
 
         if auto_repair:
             log_and_print(f"  Repairing {fc_name}...")
@@ -138,6 +235,7 @@ def process_feature_class(database_path, fc_name, auto_repair):
                     log_and_print(f"  {fc_name}: {after['error_count']} errors remain", "warning")
             else:
                 result['repaired'] = False
+                result['repair_skipped'] = True
     else:
         result['repaired'] = False
 
@@ -167,16 +265,24 @@ def process_database(database_path, sde_name, auto_repair, report_dir):
 
     results = []
     total_errors = 0
+    versioned_count = 0
+    skipped_count = 0
 
     for fc in feature_classes:
         result = process_feature_class(database_path, fc, auto_repair)
         results.append(result)
         total_errors += result['error_count']
+        if result.get('is_versioned'):
+            versioned_count += 1
+        if result.get('repair_skipped'):
+            skipped_count += 1
 
     fc_with_errors = sum(1 for r in results if r['error_count'] > 0)
 
-    log_and_print(f"Checked {len(feature_classes)} feature classes")
+    log_and_print(f"Checked {len(feature_classes)} feature classes ({versioned_count} versioned)")
     log_and_print(f"Found {total_errors} total geometry errors in {fc_with_errors} feature class(es)")
+    if skipped_count > 0:
+        log_and_print(f"Skipped {skipped_count} feature class(es) due to repair failures", "warning")
 
     if report_dir and total_errors > 0:
         timestr = time.strftime("%Y-%m-%d_%H%M%S")
