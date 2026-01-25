@@ -46,6 +46,33 @@ def get_feature_classes(database_path):
     return feature_classes
 
 
+def extract_table_name(fc_name):
+    """Extract base table name from feature class path.
+
+    Handles various naming formats:
+    - 'Campos_Survey.DBO.Planimetrics\\Campos_Survey.DBO.Railway' -> 'Railway'
+    - 'Planimetrics\\Railway' -> 'Railway'
+    - 'Campos_Survey.DBO.Railway' -> 'Railway'
+    - 'Railway' -> 'Railway'
+
+    Args:
+        fc_name: Feature class name (may include dataset path and schema prefix)
+
+    Returns:
+        Base table name for SQL queries
+    """
+    # Handle dataset paths with backslashes - take the FC part after backslash
+    if '\\' in fc_name:
+        fc_part = fc_name.split('\\')[-1]
+    else:
+        fc_part = fc_name
+
+    # Extract just the table name (last segment after dots)
+    if '.' in fc_part:
+        return fc_part.split('.')[-1]
+    return fc_part
+
+
 def is_feature_class_versioned(database_path, fc_name):
     """Check if a feature class is registered as versioned.
 
@@ -56,8 +83,7 @@ def is_feature_class_versioned(database_path, fc_name):
     Returns:
         True if versioned, False otherwise
     """
-    # Extract table name from potential dataset.fc_name format
-    table_name = fc_name.split('.')[-1] if '.' in fc_name else fc_name
+    table_name = extract_table_name(fc_name)
 
     sql = f"""
     SELECT COUNT(*)
@@ -76,8 +102,11 @@ def is_feature_class_versioned(database_path, fc_name):
         return True  # Assume versioned if we can't determine (safer)
 
 
-def check_geometry(database_path, fc_name):
-    """Run CheckGeometry and return problem summary.
+def check_geometry_versioned(database_path, fc_name):
+    """Check geometry on versioned feature class using edit session.
+
+    Starts an edit session on DEFAULT version to run CheckGeometry,
+    which avoids ERROR 001259 on versioned tables.
 
     Args:
         database_path: Path to .sde connection file
@@ -86,6 +115,84 @@ def check_geometry(database_path, fc_name):
     Returns:
         Dict with check results
     """
+    fc_path = os.path.join(database_path, fc_name)
+    editor = None
+
+    result = {
+        'feature_class': fc_name,
+        'checked': False,
+        'error_count': 0,
+        'errors': []
+    }
+
+    try:
+        editor = arcpy.da.Editor(database_path)
+        editor.startEditing(with_undo=False, multiuser_mode=True)
+
+        try:
+            out_table = arcpy.CreateScratchName("geom_check", data_type="ArcInfoTable",
+                                                workspace=arcpy.env.scratchGDB)
+            arcpy.CheckGeometry_management(fc_path, out_table)
+
+            error_count = int(arcpy.GetCount_management(out_table)[0])
+            result['checked'] = True
+            result['error_count'] = error_count
+
+            if error_count > 0 and error_count <= 100:
+                with arcpy.da.SearchCursor(out_table, ["FEATURE_ID", "PROBLEM"]) as cursor:
+                    for row in cursor:
+                        result['errors'].append({
+                            'feature_id': row[0],
+                            'problem': row[1]
+                        })
+
+            arcpy.Delete_management(out_table)
+
+        except arcpy.ExecuteError as e:
+            log_and_print(f"Error checking {fc_name} in edit session: {e}", "error")
+
+        editor.stopEditing(save_changes=False)
+
+    except arcpy.ExecuteError as e:
+        error_msg = str(e)
+        if "lock" in error_msg.lower() or "exclusive" in error_msg.lower():
+            log_and_print(f"Cannot acquire edit lock for {fc_name}: {e}", "warning")
+        else:
+            log_and_print(f"Edit session error for {fc_name}: {e}", "error")
+    except Exception as e:
+        log_and_print(f"Unexpected error checking {fc_name}: {e}", "error")
+    finally:
+        if editor is not None:
+            try:
+                if editor.isEditing:
+                    editor.stopEditing(save_changes=False)
+            except Exception:
+                pass
+
+    return result
+
+
+def check_geometry(database_path, fc_name, is_versioned=None):
+    """Run CheckGeometry and return problem summary.
+
+    Handles both versioned and non-versioned feature classes.
+    For versioned FCs, uses edit session approach to avoid ERROR 001259.
+
+    Args:
+        database_path: Path to .sde connection file
+        fc_name: Feature class name
+        is_versioned: Optional bool indicating versioning status.
+                      If None, will be determined via SQL query.
+
+    Returns:
+        Dict with check results
+    """
+    if is_versioned is None:
+        is_versioned = is_feature_class_versioned(database_path, fc_name)
+
+    if is_versioned:
+        return check_geometry_versioned(database_path, fc_name)
+
     fc_path = os.path.join(database_path, fc_name)
 
     result = {
@@ -174,7 +281,7 @@ def repair_geometry_versioned(database_path, fc_name):
                 pass
 
 
-def repair_geometry(database_path, fc_name):
+def repair_geometry(database_path, fc_name, is_versioned=None):
     """Repair geometry issues in feature class.
 
     Handles both versioned and non-versioned feature classes.
@@ -183,12 +290,16 @@ def repair_geometry(database_path, fc_name):
     Args:
         database_path: Path to .sde connection file
         fc_name: Feature class name
+        is_versioned: Optional bool indicating versioning status.
+                      If None, will be determined via SQL query.
 
     Returns:
         True if successful, False otherwise
     """
     fc_path = os.path.join(database_path, fc_name)
-    is_versioned = is_feature_class_versioned(database_path, fc_name)
+
+    if is_versioned is None:
+        is_versioned = is_feature_class_versioned(database_path, fc_name)
 
     if is_versioned:
         log_and_print(f"  {fc_name} is versioned - using edit session approach")
@@ -216,17 +327,20 @@ def process_feature_class(database_path, fc_name, auto_repair):
     Returns:
         Dict with processing results
     """
-    result = check_geometry(database_path, fc_name)
-    result['is_versioned'] = is_feature_class_versioned(database_path, fc_name)
+    # Check versioning once and pass it to avoid multiple SQL queries
+    is_versioned = is_feature_class_versioned(database_path, fc_name)
+
+    result = check_geometry(database_path, fc_name, is_versioned=is_versioned)
+    result['is_versioned'] = is_versioned
 
     if result['error_count'] > 0:
-        version_note = " (versioned)" if result['is_versioned'] else ""
+        version_note = " (versioned)" if is_versioned else ""
         log_and_print(f"  {fc_name}{version_note}: {result['error_count']} geometry error(s)", "warning")
 
         if auto_repair:
             log_and_print(f"  Repairing {fc_name}...")
-            if repair_geometry(database_path, fc_name):
-                after = check_geometry(database_path, fc_name)
+            if repair_geometry(database_path, fc_name, is_versioned=is_versioned):
+                after = check_geometry(database_path, fc_name, is_versioned=is_versioned)
                 result['repaired'] = True
                 result['errors_after_repair'] = after['error_count']
                 if after['error_count'] == 0:
