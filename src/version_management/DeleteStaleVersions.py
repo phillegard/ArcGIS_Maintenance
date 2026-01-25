@@ -31,7 +31,7 @@ def get_version_details(database_path):
         List of dicts with version name, owner, age_days
     """
     sql = """
-    SELECT name, owner, parent_version, creation_time,
+    SELECT name, owner, parent_name, creation_time,
            DATEDIFF(day, creation_time, GETDATE()) as age_days
     FROM dbo.SDE_versions
     WHERE name != 'DEFAULT'
@@ -44,10 +44,18 @@ def get_version_details(database_path):
 
         versions = []
         for row in results:
+            owner = row[1] if row[1] else ''
+            parent_raw = row[2]
+            # Format parent with owner prefix to match version name format
+            if parent_raw and parent_raw.upper() != 'DEFAULT':
+                parent = f"{owner}.{parent_raw}" if owner else parent_raw
+            else:
+                parent = parent_raw
+
             versions.append({
-                'name': f"{row[1]}.{row[0]}" if row[1] else row[0],
-                'owner': row[1],
-                'parent': row[2],
+                'name': f"{owner}.{row[0]}" if owner else row[0],
+                'owner': owner,
+                'parent': parent,
                 'created': row[3],
                 'age_days': row[4]
             })
