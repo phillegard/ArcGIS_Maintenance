@@ -88,6 +88,7 @@ def get_service_status(server_url, service_name, service_type, token, folder=Non
         return {
             'name': service_name,
             'type': service_type,
+            'folder': folder or 'root',
             'status': data.get('realTimeState', 'UNKNOWN'),
             'configured_state': data.get('configuredState', 'UNKNOWN')
         }
@@ -95,6 +96,7 @@ def get_service_status(server_url, service_name, service_type, token, folder=Non
         return {
             'name': service_name,
             'type': service_type,
+            'folder': folder or 'root',
             'status': 'ERROR',
             'error': str(e)
         }
