@@ -30,7 +30,7 @@ def get_child_versions(database_path):
     """
     versions = []
     for version in arcpy.da.ListVersions(database_path):
-        if version.name.upper() != "SDE.DEFAULT":
+        if version.name.upper() != "DBO.DEFAULT":
             versions.append({
                 'name': version.name,
                 'owner': version.name.split('.')[0] if '.' in version.name else 'sde',
@@ -40,14 +40,14 @@ def get_child_versions(database_path):
     return versions
 
 
-def reconcile_and_post(database_path, version_name, target_version="sde.DEFAULT",
+def reconcile_and_post(database_path, version_name, target_version="DBO.DEFAULT",
                        post=True, delete_after=False):
     """Reconcile a version to target and optionally post/delete.
 
     Args:
         database_path: Path to .sde connection file
         version_name: Name of version to reconcile
-        target_version: Target version (default: sde.DEFAULT)
+        target_version: Target version (default: DBO.DEFAULT)
         post: Whether to post edits after reconcile
         delete_after: Whether to delete version after successful post
 
@@ -63,6 +63,9 @@ def reconcile_and_post(database_path, version_name, target_version="sde.DEFAULT"
     }
 
     try:
+        # Set workspace before reconcile operation
+        arcpy.env.workspace = database_path
+
         arcpy.ReconcileVersions_management(
             database_path,
             "ALL_VERSIONS",
