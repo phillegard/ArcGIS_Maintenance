@@ -11,6 +11,7 @@ Comprehensive maintenance utilities for ArcGIS SDE (Spatial Database Engine) geo
 - **Data Integrity** - Geometry check/repair, topology validation
 - **ArcGIS Server** - Service health checks, cache clearing
 - **Portal Backup** - Export hosted feature services
+- **Portal Sharing Audit** - Compliance monitoring for item sharing levels
 - **Schema Backup** - XML workspace document export
 
 ## Tech Stack
@@ -41,7 +42,7 @@ python scripts/MaintenanceOrchestrator.py
 Or run individual scripts:
 ```bash
 # Core maintenance
-python CompressRebuildAnalyze.py
+python src/database_maintenance/CompressRebuildAnalyze.py
 
 # Health check
 python src/health_monitoring/DatabaseHealthSummary.py
@@ -72,12 +73,14 @@ ArcGIS_Maintenance/
 │   │   └── ValidateTopology.py
 │   ├── server_portal/            # Server/Portal ops
 │   │   ├── ServerPortalMaintenance.py
-│   │   └── PortalBackup.py
-│   └── backup/
-│       └── XMLWorkspaceExport.py
+│   │   ├── PortalBackup.py
+│   │   └── PortalSharingAudit.py
+│   ├── backup/
+│   │   └── XMLWorkspaceExport.py
+│   └── database_maintenance/
+│       └── CompressRebuildAnalyze.py
 ├── scripts/
 │   └── MaintenanceOrchestrator.py
-├── CompressRebuildAnalyze.py     # Original maintenance script
 ├── .env.example
 └── requirements.txt
 ```
@@ -120,6 +123,7 @@ See `.env.example` for all configuration options. Key settings:
 ### Server/Portal
 - **ServerPortalMaintenance.py** - Service health checks, cache clearing
 - **PortalBackup.py** - Export hosted feature services to FGDB
+- **PortalSharingAudit.py** - Audit Portal item sharing for compliance
 
 ### Backup
 - **XMLWorkspaceExport.py** - Export geodatabase schema to XML
@@ -142,9 +146,9 @@ The orchestrator runs operations in this order:
 10. Allow connections
 11. ArcGIS Server health check
 12. Portal backup
+13. Portal sharing audit
 
 ## Logs
 
 All scripts write timestamped logs to `SDE_LOG_DIR`:
-- `YYYY-MM-DD_ScriptName.txt` - Text logs
-- `YYYY-MM-DD_HHmmss_*_report.json` - JSON reports
+- `YYYY-MM-DD_ScriptName.txt` - Text logs and reports

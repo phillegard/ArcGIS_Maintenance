@@ -51,6 +51,9 @@ src/
 ├── data_integrity/           # Geometry/topology validation
 ├── health_monitoring/        # Health checks
 ├── server_portal/            # Server/Portal REST API
+│   ├── ServerPortalMaintenance.py
+│   ├── PortalBackup.py
+│   └── PortalSharingAudit.py   # Sharing compliance audit
 └── version_management/       # Version operations
 scripts/
 └── MaintenanceOrchestrator.py  # Full workflow orchestration
