@@ -13,6 +13,7 @@ Runs the full maintenance sequence in the correct order:
 10. Allow connections
 11. Clear service caches
 12. Backup Portal hosted services
+13. Portal sharing audit
 """
 
 import json
@@ -93,6 +94,12 @@ SCRIPT_SEQUENCE = [
         'module': 'src.server_portal.PortalBackup',
         'critical': False,
         'requires_config': ['PORTAL_URL', 'PORTAL_ADMIN_USER', 'PORTAL_ADMIN_PASSWORD', 'PORTAL_BACKUP_DIR']
+    },
+    {
+        'name': 'Portal Sharing Audit',
+        'module': 'src.server_portal.PortalSharingAudit',
+        'critical': False,
+        'requires_config': ['PORTAL_URL', 'PORTAL_ADMIN_USER', 'PORTAL_ADMIN_PASSWORD']
     }
 ]
 
