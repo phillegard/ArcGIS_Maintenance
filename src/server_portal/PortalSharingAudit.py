@@ -70,6 +70,9 @@ def query_all_portal_items(portal_url, token):
                 break
 
             for item in data.get('results', []):
+                # Skip Esri system accounts
+                if item['owner'] in ('esri_nav', 'esri_apps'):
+                    continue
                 items.append({
                     'id': item['id'],
                     'title': item['title'],
