@@ -53,7 +53,7 @@ SCRIPT_SEQUENCE = [
     },
     {
         'name': 'Compress/Rebuild/Analyze',
-        'script': 'CompressRebuildAnalyze.py',
+        'module': 'src.database_maintenance.CompressRebuildAnalyze',
         'critical': True
     },
     {
@@ -134,13 +134,13 @@ def run_module(module_name, args=None):
             cmd,
             capture_output=True,
             text=True,
-            timeout=3600,
+            timeout=18000,
             cwd=project_root
         )
         output = result.stdout + result.stderr
         return result.returncode == 0, output
     except subprocess.TimeoutExpired:
-        return False, "Script timed out after 1 hour"
+        return False, "Script timed out after 5 hours"
     except Exception as e:
         return False, str(e)
 
