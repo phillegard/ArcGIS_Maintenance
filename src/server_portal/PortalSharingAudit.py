@@ -18,6 +18,23 @@ from sde_utils import setup_logging, log_and_print, get_portal_token
 load_dotenv()
 
 
+def get_org_id(portal_url, token):
+    """Get the organization ID from Portal self endpoint.
+
+    Args:
+        portal_url: Portal base URL
+        token: Authentication token
+
+    Returns:
+        Organization ID string
+    """
+    self_url = f"{portal_url}/sharing/rest/portals/self"
+    params = {'f': 'json', 'token': token}
+    response = requests.get(self_url, params=params, timeout=60)
+    data = response.json()
+    return data.get('id', '')
+
+
 def query_all_portal_items(portal_url, token):
     """Query all items in Portal regardless of type.
 
@@ -30,8 +47,12 @@ def query_all_portal_items(portal_url, token):
     """
     search_url = f"{portal_url}/sharing/rest/search"
 
+    # Get org ID - wildcard search doesn't always work on Portal
+    org_id = get_org_id(portal_url, token)
+    query = f'orgid:{org_id}' if org_id else '*'
+
     params = {
-        'q': '*',
+        'q': query,
         'num': 100,
         'start': 1,
         'f': 'json',
@@ -77,11 +98,12 @@ def categorize_by_access(items):
         items: List of item dicts
 
     Returns:
-        Dict with 'public', 'org', 'private' lists
+        Dict with 'public', 'org', 'shared', 'private' lists
     """
     categories = {
         'public': [],
         'org': [],
+        'shared': [],
         'private': []
     }
 
@@ -91,6 +113,8 @@ def categorize_by_access(items):
             categories['public'].append(item)
         elif access == 'org':
             categories['org'].append(item)
+        elif access == 'shared':
+            categories['shared'].append(item)
         else:
             categories['private'].append(item)
 
@@ -112,10 +136,12 @@ def generate_summary(categories, items):
         'total_items': total,
         'public_count': len(categories['public']),
         'org_count': len(categories['org']),
+        'shared_count': len(categories['shared']),
         'private_count': len(categories['private']),
         'non_compliant_count': len(categories['public']) + len(categories['org']),
         'public_percent': round(len(categories['public']) / total * 100, 1) if total > 0 else 0,
         'org_percent': round(len(categories['org']) / total * 100, 1) if total > 0 else 0,
+        'shared_percent': round(len(categories['shared']) / total * 100, 1) if total > 0 else 0,
         'private_percent': round(len(categories['private']) / total * 100, 1) if total > 0 else 0
     }
 
@@ -142,6 +168,7 @@ def format_text_report(summary, categories, portal_url):
         f"Total Items:         {summary['total_items']:>6}",
         f"Public Items:        {summary['public_count']:>6}  ({summary['public_percent']}%)",
         f"Organization Items:  {summary['org_count']:>6}  ({summary['org_percent']}%)",
+        f"Group Shared Items:  {summary['shared_count']:>6}  ({summary['shared_percent']}%)",
         f"Private Items:       {summary['private_count']:>6}  ({summary['private_percent']}%)",
         "",
         f"Non-compliant Total: {summary['non_compliant_count']:>6}",
@@ -246,6 +273,7 @@ def main():
         'summary': summary,
         'public_items': categories['public'],
         'org_items': categories['org'],
+        'shared_items': categories['shared'],
         'private_item_count': len(categories['private'])
     }
 
