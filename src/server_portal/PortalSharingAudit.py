@@ -4,7 +4,6 @@ Identifies items shared with the organization or publicly when they should be pr
 Generates reports listing non-compliant items by access level.
 """
 
-import json
 import os
 import sys
 import time
@@ -210,11 +209,10 @@ def format_text_report(summary, categories, portal_url):
     return "\n".join(lines)
 
 
-def save_reports(report_data, text_report, output_dir, portal_name):
-    """Save JSON and text reports.
+def save_report(text_report, output_dir, portal_name):
+    """Save text report.
 
     Args:
-        report_data: Full report dict for JSON
         text_report: Formatted text report string
         output_dir: Output directory
         portal_name: Portal name for filename
@@ -222,15 +220,10 @@ def save_reports(report_data, text_report, output_dir, portal_name):
     timestr = time.strftime("%Y-%m-%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in '._-' else '_' for c in portal_name)
 
-    json_path = os.path.join(output_dir, f"{timestr}_{safe_name}_sharing_audit.json")
-    with open(json_path, 'w') as f:
-        json.dump(report_data, f, indent=2)
-    log_and_print(f"JSON report saved: {json_path}")
-
     txt_path = os.path.join(output_dir, f"{timestr}_{safe_name}_sharing_audit.txt")
     with open(txt_path, 'w') as f:
         f.write(text_report)
-    log_and_print(f"Text report saved: {txt_path}")
+    log_and_print(f"Report saved: {txt_path}")
 
 
 def main():
@@ -270,19 +263,9 @@ def main():
     text_report = format_text_report(summary, categories, portal_url)
     print(text_report)
 
-    report_data = {
-        'portal_url': portal_url,
-        'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
-        'summary': summary,
-        'public_items': categories['public'],
-        'org_items': categories['org'],
-        'shared_items': categories['shared'],
-        'private_item_count': len(categories['private'])
-    }
-
     if log_dir:
         portal_name = portal_url.replace('https://', '').replace('http://', '').split('/')[0]
-        save_reports(report_data, text_report, log_dir, portal_name)
+        save_report(text_report, log_dir, portal_name)
 
     if summary['non_compliant_count'] == 0:
         log_and_print("All items are private - no sharing concerns found")

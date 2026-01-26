@@ -4,7 +4,6 @@ Backs up Portal hosted feature services to local geodatabases.
 These are services that live in Portal's managed datastore, not in your SQL Server.
 """
 
-import json
 import os
 import sys
 import time
@@ -206,6 +205,49 @@ def delete_export_item(portal_url, export_item_id, owner, token):
         return False
 
 
+def format_report(portal_url, results):
+    """Format backup results as text report.
+
+    Args:
+        portal_url: Portal URL
+        results: List of backup result dicts
+
+    Returns:
+        Formatted report string
+    """
+    lines = [
+        "Portal Backup Report",
+        "=" * 60,
+        f"Portal: {portal_url}",
+        f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        f"Total Services: {len(results)}",
+        f"Successful: {sum(1 for r in results if r['success'])}",
+        f"Failed: {sum(1 for r in results if not r['success'])}",
+        ""
+    ]
+
+    successful = [r for r in results if r['success']]
+    if successful:
+        lines.append("Successful Backups:")
+        lines.append("-" * 40)
+        for r in successful:
+            lines.append(f"  {r['service']}")
+            if r.get('path'):
+                lines.append(f"    -> {r['path']}")
+        lines.append("")
+
+    failed = [r for r in results if not r['success']]
+    if failed:
+        lines.append("Failed Backups:")
+        lines.append("-" * 40)
+        for r in failed:
+            lines.append(f"  {r['service']} (ID: {r['id']})")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def backup_service(portal_url, service, token, output_dir, output_format, owner):
     """Backup a single hosted feature service.
 
@@ -314,15 +356,9 @@ def main():
 
     if log_dir:
         timestr = time.strftime("%Y-%m-%d_%H%M%S")
-        report_path = os.path.join(log_dir, f"{timestr}_portal_backup.json")
+        report_path = os.path.join(log_dir, f"{timestr}_portal_backup.txt")
         with open(report_path, 'w') as f:
-            json.dump({
-                'timestamp': timestr,
-                'portal': portal_url,
-                'total': len(services),
-                'successful': success_count,
-                'results': results
-            }, f, indent=2)
+            f.write(format_report(portal_url, results))
         log_and_print(f"Report saved: {report_path}")
 
     log_and_print("DONE!")

@@ -4,7 +4,6 @@ Provides connection monitoring, long-running connection detection,
 and connection report generation for SDE geodatabases.
 """
 
-import json
 import os
 import sys
 import time
@@ -161,31 +160,19 @@ def generate_report(database_name, connections, long_running):
     return "\n".join(lines)
 
 
-def export_report(report, connections, output_dir, database_name):
-    """Export report to files.
+def export_report(report, output_dir, database_name):
+    """Export report to file.
 
     Args:
         report: Text report string
-        connections: Connection data for JSON
         output_dir: Output directory
         database_name: Database name for filename
     """
     timestr = time.strftime("%Y-%m-%d_%H%M%S")
-    base_name = f"{timestr}_{database_name}_connections"
-
-    txt_path = os.path.join(output_dir, f"{base_name}.txt")
+    txt_path = os.path.join(output_dir, f"{timestr}_{database_name}_connections.txt")
     with open(txt_path, 'w') as f:
         f.write(report)
-    log_and_print(f"Text report: {txt_path}")
-
-    json_path = os.path.join(output_dir, f"{base_name}.json")
-    with open(json_path, 'w') as f:
-        json.dump({
-            'database': database_name,
-            'timestamp': timestr,
-            'connections': connections
-        }, f, indent=2, default=str)
-    log_and_print(f"JSON report: {json_path}")
+    log_and_print(f"Report saved: {txt_path}")
 
 
 def process_database(database_path, sde_name, threshold_minutes, report_dir):
@@ -216,7 +203,7 @@ def process_database(database_path, sde_name, threshold_minutes, report_dir):
     print(report)
 
     if report_dir:
-        export_report(report, connections, report_dir, sde_name.replace('.sde', ''))
+        export_report(report, report_dir, sde_name.replace('.sde', ''))
 
     return {
         'database': sde_name,

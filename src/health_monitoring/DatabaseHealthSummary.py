@@ -4,7 +4,6 @@ Combines multiple health metrics including database size, index fragmentation,
 SDE repository status, and versioning health into a single report.
 """
 
-import json
 import os
 import sys
 import time
@@ -282,31 +281,23 @@ def format_report(database_name, db_size, fragmentation, sde_health, top_tables,
     return "\n".join(lines)
 
 
-def export_report(report_data, output_dir, database_name, format_type):
+def export_report(report_data, output_dir, database_name):
     """Export report to file.
 
     Args:
         report_data: Dict with all report data
         output_dir: Output directory
         database_name: Database name
-        format_type: "json", "txt", or "html"
     """
     timestr = time.strftime("%Y-%m-%d_%H%M%S")
-    base_name = f"{timestr}_{database_name}_health"
-
-    if format_type == "json":
-        path = os.path.join(output_dir, f"{base_name}.json")
-        with open(path, 'w') as f:
-            json.dump(report_data, f, indent=2, default=str)
-    else:
-        path = os.path.join(output_dir, f"{base_name}.txt")
-        with open(path, 'w') as f:
-            f.write(report_data.get('formatted_report', ''))
+    path = os.path.join(output_dir, f"{timestr}_{database_name}_health.txt")
+    with open(path, 'w') as f:
+        f.write(report_data.get('formatted_report', ''))
 
     log_and_print(f"Report exported: {path}")
 
 
-def process_database(database_path, sde_name, frag_threshold, output_dir, report_format):
+def process_database(database_path, sde_name, frag_threshold, output_dir):
     """Generate health summary for a database.
 
     Args:
@@ -314,7 +305,6 @@ def process_database(database_path, sde_name, frag_threshold, output_dir, report
         sde_name: Name of database for logging
         frag_threshold: Fragmentation warning threshold
         output_dir: Output directory for reports
-        report_format: Report format (json/txt)
 
     Returns:
         Dict with health summary
@@ -345,7 +335,7 @@ def process_database(database_path, sde_name, frag_threshold, output_dir, report
     }
 
     if output_dir:
-        export_report(report_data, output_dir, sde_name.replace('.sde', ''), report_format)
+        export_report(report_data, output_dir, sde_name.replace('.sde', ''))
 
     return {
         'database': sde_name,
@@ -360,7 +350,6 @@ def main():
     connection_dir = os.environ.get('SDE_CONNECTION_DIR')
     log_dir = os.environ.get('SDE_LOG_DIR')
     frag_threshold = int(os.environ.get('FRAGMENTATION_WARNING_THRESHOLD', '30'))
-    report_format = os.environ.get('HEALTH_REPORT_FORMAT', 'json').lower()
 
     validate_paths(connection_dir=connection_dir, log_dir=log_dir)
     setup_logging(log_dir, "DatabaseHealthSummary")
@@ -377,7 +366,7 @@ def main():
     results = []
     for sde_path in sde_files:
         sde_name = os.path.basename(sde_path)
-        result = process_database(sde_path, sde_name, frag_threshold, log_dir, report_format)
+        result = process_database(sde_path, sde_name, frag_threshold, log_dir)
         results.append(result)
 
     log_and_print("\n" + "=" * 50)

@@ -3,7 +3,6 @@
 Clear map service caches, check service health, and manage services.
 """
 
-import json
 import os
 import sys
 import time
@@ -294,10 +293,10 @@ def main():
 
     if log_dir:
         timestr = time.strftime("%Y-%m-%d_%H%M%S")
-        json_path = os.path.join(log_dir, f"{timestr}_server_health.json")
-        with open(json_path, 'w') as f:
-            json.dump(report, f, indent=2)
-        log_and_print(f"\nReport saved: {json_path}")
+        txt_path = os.path.join(log_dir, f"{timestr}_server_health.txt")
+        with open(txt_path, 'w') as f:
+            f.write(format_report(report))
+        log_and_print(f"\nReport saved: {txt_path}")
 
     log_and_print("DONE!")
 

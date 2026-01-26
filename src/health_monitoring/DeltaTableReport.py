@@ -4,7 +4,6 @@ Analyzes the A (adds) and D (deletes) tables that store versioned edits
 to identify tables with excessive versioning overhead.
 """
 
-import json
 import os
 import sys
 import time
@@ -243,14 +242,10 @@ def process_database(database_path, sde_name, warning_mb, critical_mb, output_di
 
     if output_dir:
         timestr = time.strftime("%Y-%m-%d_%H%M%S")
-        json_path = os.path.join(output_dir, f"{timestr}_{sde_name.replace('.sde', '')}_delta_report.json")
-        with open(json_path, 'w') as f:
-            json.dump({
-                'database': sde_name,
-                'timestamp': timestr,
-                'tables': report_data
-            }, f, indent=2)
-        log_and_print(f"JSON report: {json_path}")
+        txt_path = os.path.join(output_dir, f"{timestr}_{sde_name.replace('.sde', '')}_delta_report.txt")
+        with open(txt_path, 'w') as f:
+            f.write(report)
+        log_and_print(f"Report saved: {txt_path}")
 
     return {
         'database': sde_name,

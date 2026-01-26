@@ -16,7 +16,6 @@ Runs the full maintenance sequence in the correct order:
 13. Portal sharing audit
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -315,9 +314,9 @@ def main():
 
     if log_dir:
         timestr = time.strftime("%Y-%m-%d_%H%M%S")
-        report_path = os.path.join(log_dir, f"{timestr}_maintenance_report.json")
+        report_path = os.path.join(log_dir, f"{timestr}_maintenance_report.txt")
         with open(report_path, 'w') as f:
-            json.dump(results, f, indent=2)
+            f.write(summary)
         log_and_print(f"\nFull report saved: {report_path}")
 
     if results['success']:
