@@ -183,10 +183,11 @@ def calculate_health_score(db_size, fragmentation, sde_health, frag_threshold):
     score = 100
     issues = []
 
-    if db_size['used_percent'] > 90:
+    used_pct = db_size['used_percent']
+    if used_pct > 90:
         score -= 30
         issues.append("Database nearly full")
-    elif db_size['used_percent'] > 80:
+    elif used_pct > 80:
         score -= 15
         issues.append("Database space usage high")
 
@@ -198,23 +199,18 @@ def calculate_health_score(db_size, fragmentation, sde_health, frag_threshold):
         score -= 15
         issues.append(f"{high_frag_count} fragmented indexes")
 
-    if sde_health['states'] > 50000:
+    states = sde_health['states']
+    if states > 50000:
         score -= 30
         issues.append("State table critically large")
-    elif sde_health['states'] > 10000:
+    elif states > 10000:
         score -= 15
         issues.append("State table growing large")
 
     score = max(0, score)
 
-    if score >= 80:
-        status = "GOOD"
-    elif score >= 60:
-        status = "FAIR"
-    elif score >= 40:
-        status = "POOR"
-    else:
-        status = "CRITICAL"
+    status_thresholds = [(80, "GOOD"), (60, "FAIR"), (40, "POOR"), (0, "CRITICAL")]
+    status = next(s for threshold, s in status_thresholds if score >= threshold)
 
     return score, status, issues
 

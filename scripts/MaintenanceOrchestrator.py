@@ -112,26 +112,28 @@ def check_config_available(required_vars):
     Returns:
         True if all are set, False otherwise
     """
-    for var in required_vars:
-        if not os.environ.get(var):
-            return False
-    return True
+    return all(os.environ.get(var) for var in required_vars)
 
 
-def run_module(module_name, args=None):
-    """Run a maintenance module.
+def run_script(script_path, args=None, timeout=18000):
+    """Run a Python script.
 
     Args:
-        module_name: Python module path
+        script_path: Path to script (module path like 'src.module' or direct path)
         args: Optional command line arguments
+        timeout: Timeout in seconds (default: 5 hours)
 
     Returns:
         Tuple of (success, output)
     """
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    script_path = os.path.join(project_root, module_name.replace('.', os.sep) + '.py')
 
-    cmd = [sys.executable, script_path]
+    if '.' in script_path and not script_path.endswith('.py'):
+        full_path = os.path.join(project_root, script_path.replace('.', os.sep) + '.py')
+    else:
+        full_path = os.path.join(project_root, script_path)
+
+    cmd = [sys.executable, full_path]
     if args:
         cmd.extend(args)
 
@@ -140,41 +142,13 @@ def run_module(module_name, args=None):
             cmd,
             capture_output=True,
             text=True,
-            timeout=18000,
+            timeout=timeout,
             cwd=project_root
         )
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output
+        return result.returncode == 0, result.stdout + result.stderr
     except subprocess.TimeoutExpired:
-        return False, "Script timed out after 5 hours"
-    except Exception as e:
-        return False, str(e)
-
-
-def run_script(script_name):
-    """Run a standalone Python script.
-
-    Args:
-        script_name: Script filename
-
-    Returns:
-        Tuple of (success, output)
-    """
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    script_path = os.path.join(project_root, script_name)
-
-    try:
-        result = subprocess.run(
-            [sys.executable, script_path],
-            capture_output=True,
-            text=True,
-            timeout=3600,
-            cwd=project_root
-        )
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, "Script timed out after 1 hour"
+        hours = timeout // 3600
+        return False, f"Script timed out after {hours} hour(s)"
     except Exception as e:
         return False, str(e)
 
@@ -230,9 +204,9 @@ def run_maintenance_sequence(steps=None, skip_steps=None):
         start_time = time.time()
 
         if 'module' in step:
-            success, output = run_module(step['module'], step.get('args'))
+            success, output = run_script(step['module'], step.get('args'))
         elif 'script' in step:
-            success, output = run_script(step['script'])
+            success, output = run_script(step['script'], timeout=3600)
         else:
             success, output = False, "No module or script specified"
 
@@ -282,10 +256,11 @@ def format_summary(results):
         "Steps:"
     ]
 
+    status_icons = {'success': '+', 'failed': '-', 'skipped': 'o'}
     for step in results['steps']:
-        status_icon = "+" if step['status'] == 'success' else "-" if step['status'] == 'failed' else "o"
+        icon = status_icons.get(step['status'], 'o')
         duration = f"({step.get('duration', 0):.1f}s)" if step.get('duration') else ""
-        lines.append(f"  [{status_icon}] {step['name']} {duration}")
+        lines.append(f"  [{icon}] {step['name']} {duration}")
 
     return "\n".join(lines)
 

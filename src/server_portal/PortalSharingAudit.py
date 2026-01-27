@@ -102,23 +102,12 @@ def categorize_by_access(items):
     Returns:
         Dict with 'public', 'org', 'shared', 'private' lists
     """
-    categories = {
-        'public': [],
-        'org': [],
-        'shared': [],
-        'private': []
-    }
+    categories = {'public': [], 'org': [], 'shared': [], 'private': []}
 
     for item in items:
         access = item.get('access', 'private').lower()
-        if access == 'public':
-            categories['public'].append(item)
-        elif access == 'org':
-            categories['org'].append(item)
-        elif access == 'shared':
-            categories['shared'].append(item)
-        else:
-            categories['private'].append(item)
+        category = access if access in categories else 'private'
+        categories[category].append(item)
 
     return categories
 
@@ -134,18 +123,52 @@ def generate_summary(categories, items):
         Dict with counts and percentages
     """
     total = len(items)
+
+    def pct(count):
+        return round(count / total * 100, 1) if total > 0 else 0
+
+    counts = {key: len(val) for key, val in categories.items()}
+
     return {
         'total_items': total,
-        'public_count': len(categories['public']),
-        'org_count': len(categories['org']),
-        'shared_count': len(categories['shared']),
-        'private_count': len(categories['private']),
-        'non_compliant_count': len(categories['public']) + len(categories['org']),
-        'public_percent': round(len(categories['public']) / total * 100, 1) if total > 0 else 0,
-        'org_percent': round(len(categories['org']) / total * 100, 1) if total > 0 else 0,
-        'shared_percent': round(len(categories['shared']) / total * 100, 1) if total > 0 else 0,
-        'private_percent': round(len(categories['private']) / total * 100, 1) if total > 0 else 0
+        'public_count': counts['public'],
+        'org_count': counts['org'],
+        'shared_count': counts['shared'],
+        'private_count': counts['private'],
+        'non_compliant_count': counts['public'] + counts['org'],
+        'public_percent': pct(counts['public']),
+        'org_percent': pct(counts['org']),
+        'shared_percent': pct(counts['shared']),
+        'private_percent': pct(counts['private'])
     }
+
+
+def format_item_section(items, section_title):
+    """Format a section of items for the report.
+
+    Args:
+        items: List of item dicts
+        section_title: Title for the section
+
+    Returns:
+        List of formatted lines
+    """
+    if not items:
+        return []
+
+    lines = [
+        section_title,
+        "-" * 70,
+        f"{'Title':<35} {'Owner':<15} {'Type':<20}",
+        "-" * 70
+    ]
+
+    for item in items:
+        lines.append(f"{item['title'][:35]:<35} {item['owner'][:15]:<15} {item['type'][:20]:<20}")
+        lines.append(f"  ID: {item['id']}")
+
+    lines.append("")
+    return lines
 
 
 def format_text_report(summary, categories, portal_url):
@@ -177,31 +200,8 @@ def format_text_report(summary, categories, portal_url):
         ""
     ]
 
-    if categories['public']:
-        lines.append("PUBLIC ITEMS (shared with everyone)")
-        lines.append("-" * 70)
-        lines.append(f"{'Title':<35} {'Owner':<15} {'Type':<20}")
-        lines.append("-" * 70)
-        for item in categories['public']:
-            title = item['title'][:35] if len(item['title']) > 35 else item['title']
-            owner = item['owner'][:15] if len(item['owner']) > 15 else item['owner']
-            item_type = item['type'][:20] if len(item['type']) > 20 else item['type']
-            lines.append(f"{title:<35} {owner:<15} {item_type:<20}")
-            lines.append(f"  ID: {item['id']}")
-        lines.append("")
-
-    if categories['org']:
-        lines.append("ORGANIZATION ITEMS (shared with organization)")
-        lines.append("-" * 70)
-        lines.append(f"{'Title':<35} {'Owner':<15} {'Type':<20}")
-        lines.append("-" * 70)
-        for item in categories['org']:
-            title = item['title'][:35] if len(item['title']) > 35 else item['title']
-            owner = item['owner'][:15] if len(item['owner']) > 15 else item['owner']
-            item_type = item['type'][:20] if len(item['type']) > 20 else item['type']
-            lines.append(f"{title:<35} {owner:<15} {item_type:<20}")
-            lines.append(f"  ID: {item['id']}")
-        lines.append("")
+    lines.extend(format_item_section(categories['public'], "PUBLIC ITEMS (shared with everyone)"))
+    lines.extend(format_item_section(categories['org'], "ORGANIZATION ITEMS (shared with organization)"))
 
     if summary['non_compliant_count'] == 0:
         lines.append("All items are private - no sharing concerns found.")

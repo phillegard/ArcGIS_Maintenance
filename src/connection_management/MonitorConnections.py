@@ -106,12 +106,7 @@ def check_long_running(connections, threshold_minutes):
     Returns:
         List of long-running connections
     """
-    long_running = []
-    for conn in connections:
-        minutes = conn.get('connection_minutes', 0)
-        if minutes and minutes >= threshold_minutes:
-            long_running.append(conn)
-    return long_running
+    return [c for c in connections if (c.get('connection_minutes') or 0) >= threshold_minutes]
 
 
 def generate_report(database_name, connections, long_running):

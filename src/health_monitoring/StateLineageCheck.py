@@ -19,44 +19,36 @@ from sde_utils import (
 load_dotenv()
 
 
-def get_state_count(database_path):
-    """Get count of states in SDE_states table.
+def get_table_count(database_path, table_name, error_label):
+    """Get count of records in an SDE table.
 
     Args:
         database_path: Path to .sde connection file
+        table_name: Name of the table to count
+        error_label: Label for error messages
 
     Returns:
-        Count of states, or -1 on error
+        Count of records, or -1 on error
     """
-    sql = "SELECT COUNT(*) FROM sde.SDE_states"
+    sql = f"SELECT COUNT(*) FROM sde.{table_name}"
     try:
         result = execute_sql(database_path, sql)
         if result and result is not True:
             return result[0][0] if isinstance(result[0], (list, tuple)) else result[0]
         return 0
     except Exception as e:
-        log_and_print(f"Error getting state count: {e}", "error")
+        log_and_print(f"Error getting {error_label}: {e}", "error")
         return -1
+
+
+def get_state_count(database_path):
+    """Get count of states in SDE_states table."""
+    return get_table_count(database_path, "SDE_states", "state count")
 
 
 def get_lineage_count(database_path):
-    """Get count of lineage records.
-
-    Args:
-        database_path: Path to .sde connection file
-
-    Returns:
-        Count of lineage records, or -1 on error
-    """
-    sql = "SELECT COUNT(*) FROM sde.SDE_state_lineages"
-    try:
-        result = execute_sql(database_path, sql)
-        if result and result is not True:
-            return result[0][0] if isinstance(result[0], (list, tuple)) else result[0]
-        return 0
-    except Exception as e:
-        log_and_print(f"Error getting lineage count: {e}", "error")
-        return -1
+    """Get count of lineage records."""
+    return get_table_count(database_path, "SDE_state_lineages", "lineage count")
 
 
 def get_state_range(database_path):

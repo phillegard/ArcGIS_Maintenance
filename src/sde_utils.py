@@ -42,12 +42,8 @@ def log_and_print(message, level="info"):
         level: Log level (info, warning, error)
     """
     print(message)
-    if level == "info":
-        logging.info(message)
-    elif level == "warning":
-        logging.warning(message)
-    elif level == "error":
-        logging.error(message)
+    log_func = getattr(logging, level, logging.info)
+    log_func(message)
 
 
 def validate_paths(**paths):

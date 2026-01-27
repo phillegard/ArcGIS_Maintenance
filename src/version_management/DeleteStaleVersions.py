@@ -5,9 +5,8 @@ and configurable exclusion patterns.
 """
 
 import os
-import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import arcpy
 from dotenv import load_dotenv
@@ -106,23 +105,15 @@ def filter_stale_versions(versions, max_age_days, exclude_patterns=None):
     Returns:
         List of versions to delete
     """
-    stale = []
     exclude_patterns = exclude_patterns or []
 
-    for version in versions:
+    def is_stale_and_not_excluded(version):
         if version['age_days'] < max_age_days:
-            continue
+            return False
+        version_name_lower = version['name'].lower()
+        return not any(p.lower() in version_name_lower for p in exclude_patterns)
 
-        excluded = False
-        for pattern in exclude_patterns:
-            if pattern.lower() in version['name'].lower():
-                excluded = True
-                break
-
-        if not excluded:
-            stale.append(version)
-
-    return stale
+    return [v for v in versions if is_stale_and_not_excluded(v)]
 
 
 def order_versions_for_deletion(versions):

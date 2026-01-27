@@ -29,17 +29,11 @@ def get_feature_classes(database_path):
         List of feature class paths
     """
     arcpy.env.workspace = database_path
-    feature_classes = []
+    feature_classes = list(arcpy.ListFeatureClasses() or [])
 
-    standalone_fcs = arcpy.ListFeatureClasses() or []
-    for fc in standalone_fcs:
-        feature_classes.append(fc)
-
-    datasets = arcpy.ListDatasets("", "Feature") or []
-    for dataset in datasets:
+    for dataset in (arcpy.ListDatasets("", "Feature") or []):
         arcpy.env.workspace = os.path.join(database_path, dataset)
-        dataset_fcs = arcpy.ListFeatureClasses() or []
-        for fc in dataset_fcs:
+        for fc in (arcpy.ListFeatureClasses() or []):
             feature_classes.append(os.path.join(dataset, fc))
 
     arcpy.env.workspace = database_path
@@ -61,16 +55,8 @@ def extract_table_name(fc_name):
     Returns:
         Base table name for SQL queries
     """
-    # Handle dataset paths with backslashes - take the FC part after backslash
-    if '\\' in fc_name:
-        fc_part = fc_name.split('\\')[-1]
-    else:
-        fc_part = fc_name
-
-    # Extract just the table name (last segment after dots)
-    if '.' in fc_part:
-        return fc_part.split('.')[-1]
-    return fc_part
+    fc_part = fc_name.split('\\')[-1]
+    return fc_part.split('.')[-1]
 
 
 def is_feature_class_versioned(database_path, fc_name):
@@ -102,22 +88,16 @@ def is_feature_class_versioned(database_path, fc_name):
         return True  # Assume versioned if we can't determine (safer)
 
 
-def check_geometry_versioned(database_path, fc_name):
-    """Check geometry on versioned feature class using edit session.
-
-    Starts an edit session on DEFAULT version to run CheckGeometry,
-    which avoids ERROR 001259 on versioned tables.
+def run_check_geometry(fc_path, fc_name):
+    """Run CheckGeometry and collect results.
 
     Args:
-        database_path: Path to .sde connection file
-        fc_name: Feature class name
+        fc_path: Full path to feature class
+        fc_name: Feature class name for logging
 
     Returns:
         Dict with check results
     """
-    fc_path = os.path.join(database_path, fc_name)
-    editor = None
-
     result = {
         'feature_class': fc_name,
         'checked': False,
@@ -126,48 +106,22 @@ def check_geometry_versioned(database_path, fc_name):
     }
 
     try:
-        editor = arcpy.da.Editor(database_path)
-        editor.startEditing(with_undo=False, multiuser_mode=True)
+        out_table = arcpy.CreateScratchName("geom_check", data_type="ArcInfoTable",
+                                            workspace=arcpy.env.scratchGDB)
+        arcpy.CheckGeometry_management(fc_path, out_table)
 
-        try:
-            out_table = arcpy.CreateScratchName("geom_check", data_type="ArcInfoTable",
-                                                workspace=arcpy.env.scratchGDB)
-            arcpy.CheckGeometry_management(fc_path, out_table)
+        error_count = int(arcpy.GetCount_management(out_table)[0])
+        result['checked'] = True
+        result['error_count'] = error_count
 
-            error_count = int(arcpy.GetCount_management(out_table)[0])
-            result['checked'] = True
-            result['error_count'] = error_count
+        if 0 < error_count <= 100:
+            with arcpy.da.SearchCursor(out_table, ["FEATURE_ID", "PROBLEM"]) as cursor:
+                result['errors'] = [{'feature_id': row[0], 'problem': row[1]} for row in cursor]
 
-            if error_count > 0 and error_count <= 100:
-                with arcpy.da.SearchCursor(out_table, ["FEATURE_ID", "PROBLEM"]) as cursor:
-                    for row in cursor:
-                        result['errors'].append({
-                            'feature_id': row[0],
-                            'problem': row[1]
-                        })
-
-            arcpy.Delete_management(out_table)
-
-        except arcpy.ExecuteError as e:
-            log_and_print(f"Error checking {fc_name} in edit session: {e}", "error")
-
-        editor.stopEditing(save_changes=False)
+        arcpy.Delete_management(out_table)
 
     except arcpy.ExecuteError as e:
-        error_msg = str(e)
-        if "lock" in error_msg.lower() or "exclusive" in error_msg.lower():
-            log_and_print(f"Cannot acquire edit lock for {fc_name}: {e}", "warning")
-        else:
-            log_and_print(f"Edit session error for {fc_name}: {e}", "error")
-    except Exception as e:
-        log_and_print(f"Unexpected error checking {fc_name}: {e}", "error")
-    finally:
-        if editor is not None:
-            try:
-                if editor.isEditing:
-                    editor.stopEditing(save_changes=False)
-            except Exception:
-                pass
+        log_and_print(f"Error checking {fc_name}: {e}", "error")
 
     return result
 
@@ -190,39 +144,35 @@ def check_geometry(database_path, fc_name, is_versioned=None):
     if is_versioned is None:
         is_versioned = is_feature_class_versioned(database_path, fc_name)
 
-    if is_versioned:
-        return check_geometry_versioned(database_path, fc_name)
-
     fc_path = os.path.join(database_path, fc_name)
 
-    result = {
-        'feature_class': fc_name,
-        'checked': False,
-        'error_count': 0,
-        'errors': []
-    }
+    if not is_versioned:
+        return run_check_geometry(fc_path, fc_name)
+
+    editor = None
+    result = {'feature_class': fc_name, 'checked': False, 'error_count': 0, 'errors': []}
 
     try:
-        out_table = arcpy.CreateScratchName("geom_check", data_type="ArcInfoTable",
-                                            workspace=arcpy.env.scratchGDB)
-        arcpy.CheckGeometry_management(fc_path, out_table)
-
-        error_count = int(arcpy.GetCount_management(out_table)[0])
-        result['checked'] = True
-        result['error_count'] = error_count
-
-        if error_count > 0 and error_count <= 100:
-            with arcpy.da.SearchCursor(out_table, ["FEATURE_ID", "PROBLEM"]) as cursor:
-                for row in cursor:
-                    result['errors'].append({
-                        'feature_id': row[0],
-                        'problem': row[1]
-                    })
-
-        arcpy.Delete_management(out_table)
+        editor = arcpy.da.Editor(database_path)
+        editor.startEditing(with_undo=False, multiuser_mode=True)
+        result = run_check_geometry(fc_path, fc_name)
+        editor.stopEditing(save_changes=False)
 
     except arcpy.ExecuteError as e:
-        log_and_print(f"Error checking {fc_name}: {e}", "error")
+        error_msg = str(e).lower()
+        if "lock" in error_msg or "exclusive" in error_msg:
+            log_and_print(f"Cannot acquire edit lock for {fc_name}: {e}", "warning")
+        else:
+            log_and_print(f"Edit session error for {fc_name}: {e}", "error")
+    except Exception as e:
+        log_and_print(f"Unexpected error checking {fc_name}: {e}", "error")
+    finally:
+        if editor is not None:
+            try:
+                if editor.isEditing:
+                    editor.stopEditing(save_changes=False)
+            except Exception:
+                pass
 
     return result
 
