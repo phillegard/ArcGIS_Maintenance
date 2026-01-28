@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sde_utils import (
     setup_logging, log_and_print, validate_paths,
-    get_sde_connections, get_data_list
+    get_sde_connections, get_data_list, process_with_error_handling
 )
 
 load_dotenv()
@@ -50,13 +50,13 @@ def process_database(database_path, sde_name):
 
     for operation_name, operation_func in operations:
         log_and_print(f"{operation_name}: {sde_name}")
-        try:
-            operation_func(database_path)
-        except arcpy.ExecuteError as e:
-            log_and_print(f"ArcPy error {operation_name.lower()} {sde_name}: {e}", "error")
-            return False
-        except Exception as e:
-            log_and_print(f"Unexpected error {operation_name.lower()} {sde_name}: {e}", "error")
+        success, error = process_with_error_handling(
+            f"{operation_name.lower()} {sde_name}",
+            operation_func,
+            database_path
+        )
+        if not success:
+            log_and_print(error, "error")
             return False
 
     return True
